@@ -1,5 +1,9 @@
 # Install-AIOStreams
 
+> **Looking for a VPS?** You can use my DediRock referral link: https://billing.dedirock.com/aff.php?aff=898
+>
+> This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
+
 Recovery/install script for rebuilding the minimal AIOStreams Docker deployment on a fresh Ubuntu VPS.
 
 The installer uses the reviewed `Viren070/docker-compose-template` revision pinned in the script, configures AIOStreams and Authelia, generates local secrets, and starts the deployment with Docker Compose.
@@ -163,3 +167,13 @@ https://github.com/Viren070/docker-compose-template.git
 ```
 
 The exact revision used is pinned in `Install-AIOStreams.sh` rather than automatically tracking the upstream default branch.
+
+---
+
+## Need a VPS?
+
+If you're looking for a VPS to run AIOStreams, you can use my DediRock referral link:
+
+https://billing.dedirock.com/aff.php?aff=898
+
+This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
