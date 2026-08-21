@@ -12,8 +12,11 @@ The installer uses the reviewed `Viren070/docker-compose-template` revision pinn
 - Verifies TCP ports 80 and 443 are not already in use.
 - Verifies both hostnames resolve to IPv4 addresses.
 - Installs Docker Engine from Docker's official Ubuntu repository when needed.
+- Creates a dedicated `aio` service account, preferring UID/GID `1000` when available and otherwise selecting the next free matching UID/GID.
+- Reuses an existing `aio` account only when it is a non-root, `nologin` service account with a same-named primary group.
 - Clones a pinned revision of `Viren070/docker-compose-template`.
 - Configures the `required,aiostreams` Docker Compose profiles.
+- Writes the actual `aio` account UID/GID into Docker `PUID` and `PGID`.
 - Generates Authelia and AIOStreams secrets locally with OpenSSL.
 - Prompts locally for the AIOStreams dashboard password and Authelia password.
 - Hashes the Authelia password with Argon2 before writing the Authelia user database.
@@ -38,18 +41,37 @@ Before running the installer:
 3. Create an IPv4 DNS A record for the Authelia hostname pointing to the VPS public IP.
 4. Ensure TCP ports 80 and 443 are free.
 5. Ensure `/opt/docker` does not already exist.
-6. Ensure host UID and GID `1000` are unused.
 
-> **UID/GID note:** the script intentionally creates an `aio` service account with UID/GID `1000` and aborts if either ID is already allocated. Many normal Ubuntu cloud images create the initial login user as UID/GID `1000`, so check this before a real run.
+### UID/GID behavior
 
-Check with:
+The installer no longer requires UID/GID `1000` to be unused.
 
-```bash
-getent passwd 1000
-getent group 1000
+It prefers `1000`, but checks both the passwd and group databases. If either UID `1000` or GID `1000` is already allocated, the installer searches upward for the next number that is free as both a UID and a GID, up to `60000`.
+
+For example, on a standard Ubuntu VPS where the initial `ubuntu` user already uses UID/GID `1000`, the installer will normally create:
+
+```text
+aio:x:1001:1001:...
 ```
 
-If either command returns an existing account/group, do not run the installer unchanged.
+and configure:
+
+```text
+PUID=1001
+PGID=1001
+```
+
+The exact value depends on the accounts already present on the host.
+
+If an `aio` user already exists from a previous partial installation, it is reused only if it is a non-root `/usr/sbin/nologin` account whose primary group is also named `aio`. Otherwise the installer stops rather than repurposing an unexpected account.
+
+You can inspect the selected account after installation with:
+
+```bash
+id aio
+getent passwd aio
+getent group aio
+```
 
 ## Clone the repository
 
@@ -73,6 +95,8 @@ sudo bash Install-AIOStreams.sh \
 ```
 
 If the hostname/email options are omitted, the script prompts for them.
+
+The dry run reports that the real installation will create or reuse the `aio` service account while preferring UID/GID `1000`; it does not modify the account database.
 
 ## Install
 
@@ -109,6 +133,8 @@ Useful checks:
 cd /opt/docker
 docker compose ps
 docker compose logs --tail=100
+id aio
+grep -E '^(PUID|PGID)=' .env
 ```
 
 ## Security notes
@@ -118,6 +144,7 @@ docker compose logs --tail=100
 - The AIOStreams `SECRET_KEY` is generated on the VPS.
 - Sensitive `.env` and Authelia user files are restricted to mode `600`.
 - The installer is fail-closed and refuses to replace an existing `/opt/docker` installation.
+- The installer refuses to repurpose an unexpected existing `aio` account or group.
 - Protect SSH, TCP/80, and TCP/443 with the VPS provider firewall as appropriate.
 - Keep backups outside the VPS.
 
