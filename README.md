@@ -1,6 +1,6 @@
 # Install-AIOStreams
 
-> **Looking for a VPS?** You can use my DediRock referral link: https://billing.dedirock.com/aff.php?aff=898
+> **Looking for a $10.88/yr VPS?** You can use my DediRock referral link: https://billing.dedirock.com/aff.php?aff=898
 >
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
 
