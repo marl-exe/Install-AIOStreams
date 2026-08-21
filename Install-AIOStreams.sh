@@ -7,7 +7,10 @@ IFS=$'\n\t'
 
 readonly INSTALL_DIR='/opt/docker'
 readonly SERVICE_USER='aio'
-readonly SERVICE_UID='1000'
+readonly PREFERRED_SERVICE_ID='1000'
+readonly MAX_SERVICE_ID='60000'
+SERVICE_UID=''
+SERVICE_GID=''
 readonly TEMPLATE_REPOSITORY='https://github.com/Viren070/docker-compose-template.git'
 readonly TEMPLATE_REF='59137ec0ae7cb4a9bb386d931cda4f327dbc8625'
 
@@ -109,7 +112,7 @@ done
 
 if [[ $DRY_RUN == true ]]; then
   log 'Dry run passed. No packages, files, containers, or credentials were changed.'
-  log "Would install Docker Engine, clone template ref $TEMPLATE_REF, and publish $DOMAIN and $AUTH_HOST."
+  log "Would install Docker Engine, create/reuse the $SERVICE_USER service account using a free UID/GID (preferring $PREFERRED_SERVICE_ID), clone template ref $TEMPLATE_REF, and publish $DOMAIN and $AUTH_HOST."
   exit 0
 fi
 
@@ -167,13 +170,52 @@ EOF
   systemctl enable --now docker
 }
 
+find_available_service_id() {
+  local candidate=$PREFERRED_SERVICE_ID
+
+  while ((candidate <= MAX_SERVICE_ID)); do
+    if ! getent passwd "$candidate" >/dev/null && ! getent group "$candidate" >/dev/null; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+    ((candidate++))
+  done
+
+  return 1
+}
+
 create_service_account() {
-  if getent passwd "$SERVICE_UID" >/dev/null || getent group "$SERVICE_UID" >/dev/null; then
-    die "UID/GID $SERVICE_UID is already allocated; refusing to repurpose an existing account"
+  local existing_shell existing_group service_id
+
+  if getent passwd "$SERVICE_USER" >/dev/null; then
+    SERVICE_UID=$(id -u "$SERVICE_USER")
+    SERVICE_GID=$(id -g "$SERVICE_USER")
+    existing_shell=$(getent passwd "$SERVICE_USER" | cut -d: -f7)
+    existing_group=$(getent group "$SERVICE_GID" | cut -d: -f1)
+
+    [[ $SERVICE_UID -ne 0 && $SERVICE_GID -ne 0 ]] || die "existing $SERVICE_USER account unexpectedly uses UID or GID 0"
+    [[ $existing_shell == '/usr/sbin/nologin' ]] || die "existing $SERVICE_USER account is not a nologin service account; refusing to repurpose it"
+    [[ $existing_group == "$SERVICE_USER" ]] || die "existing $SERVICE_USER account does not use a same-named primary group; refusing to repurpose it"
+
+    log "Reusing existing $SERVICE_USER service account (UID $SERVICE_UID, GID $SERVICE_GID)."
+    return
   fi
 
-  groupadd --gid "$SERVICE_UID" "$SERVICE_USER"
-  useradd --uid "$SERVICE_UID" --gid "$SERVICE_UID" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+  if getent group "$SERVICE_USER" >/dev/null; then
+    die "group $SERVICE_USER already exists without a matching user; refusing to repurpose it"
+  fi
+
+  service_id=$(find_available_service_id) || die "no free UID/GID found between $PREFERRED_SERVICE_ID and $MAX_SERVICE_ID"
+
+  groupadd --gid "$service_id" "$SERVICE_USER"
+  if ! useradd --uid "$service_id" --gid "$service_id" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"; then
+    groupdel "$SERVICE_USER" >/dev/null 2>&1 || true
+    die "failed to create $SERVICE_USER service account"
+  fi
+
+  SERVICE_UID=$service_id
+  SERVICE_GID=$service_id
+  log "Created $SERVICE_USER service account with UID/GID $service_id."
 }
 
 install_docker
@@ -185,7 +227,7 @@ git -C "$INSTALL_DIR" checkout --detach "$TEMPLATE_REF"
 
 set_env_value "$INSTALL_DIR/.env" 'TZ' 'Asia/Manila'
 set_env_value "$INSTALL_DIR/.env" 'PUID' "$SERVICE_UID"
-set_env_value "$INSTALL_DIR/.env" 'PGID' "$SERVICE_UID"
+set_env_value "$INSTALL_DIR/.env" 'PGID' "$SERVICE_GID"
 set_env_value "$INSTALL_DIR/.env" 'COMPOSE_PROFILES' '"required,aiostreams"'
 set_env_value "$INSTALL_DIR/.env" 'LETSENCRYPT_EMAIL' "$LETSENCRYPT_EMAIL"
 set_env_value "$INSTALL_DIR/.env" 'DOMAIN' "$DOMAIN"
